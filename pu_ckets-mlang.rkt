@@ -26,23 +26,15 @@
   [fac-lambda #%plain-lambda]
   [fac-lambda lambda]
   [fac-if if]
-  [fac-continuation-mark with-continuation-mark]
   [fac-and and]
   [fac-or or]
   )
 
- ; 
- ; Extra macros unique to racets
- ; 
+ ; Create a constant
+ const
 
- ; Associate a label with a policy
- let-label
- 
- ; Create a facet
- fac
- 
- ; Observe a faceted value
- obs
+ ; Create a labeled value
+ label
 
  ; Create a reference cell
  ref
@@ -52,76 +44,28 @@
 
  ; mutate a reference cell
  ref-set!
-
- ; exportable lambda
- ext-lambda
-
- ; Lazy failure
- ★
  )
+
+; Constants are simply marked with the current PC
+(define-syntax (const stx)
+  (syntax-parse stx
+    [(_ c) #`(mk-labeled c)]))
 
 ; Lambdas are rewritten into tagged closures so we can implement
 ; `racets` closures from primitives.
-
 (define-syntax (fac-lambda stx)
   (syntax-parse stx
     [(_ xs expr)
-    #`(fclo (lambda xs expr))]))
+    #`(tclo (mk-labeled (lambda xs expr)))]))
 
-; Create an "external" lambda to hand across a module boundary. This
-; is *not* an fclo, but rather it is a "plain" Racket lambda. This is
-; potentially bad: if you hand off things to modules that do not
-; expect facets, they will crash. So to use this correctly, you must
-; use an explicit `obs` form before closing over faceted things in an
-; ext-lambda form.
-
-(define-syntax (ext-lambda stx)
+; Create a labeled value
+(define-syntax (label stx)
   (syntax-parse stx
-    [(_ xs expr)
-     #`(lambda xs expr)]))
+    [(_ e)
+     #`(change-to e high)]))
 
-(define-syntax (let-label stx)
-  (syntax-parse stx
-    [(_ l (lambda xs e) body)
-     #`(let ([l (labelpair (gensym 'lab)
-                           (lambda xs e))])
-         body)]))
-
-(define-syntax (★)
-  (syntax-parse
-      #`(lfail)))
-
-
-; Syntax for facet construction
-; TODO: FIX!
-
-(define-syntax (fac stx)
-  (syntax-parse stx
-    [(_ l v1 v2)
-     #`(construct-facet-optimized (set->list (set-union (current-pc) (set (pos (labelpair-name l))))) v1 v2) ]))
-
-; Observe l e1 e2
-; l - The label being checked
-; e1 - The argument being passed to the policy 
-(define-syntax (obs stx)
-  (syntax-parse stx
-    [(_ l e1 e2)
-     #`(let obsf ([lp l]
-                  [v1 e1]
-                  [v2 e2])
-         (if (facet? v2)
-             (let ([v2-name (facet-labelname v2)])
-               (if (equal? v2-name (labelpair-name lp))
-                   (if (fac-app (labelpair-pol lp) v1)
-                       (facet-left v2)
-                       (facet-right v2))
-                   (let* ([v2-l (facet-left v2)]
-                          [v2-r (facet-right v2)])
-                     (mkfacet v2-name
-                              (obsf lp v1 v2-l)
-                              (obsf lp v1 v2-r)))))
-             v2))]))
-
+; Module begin (currently this does nothing, eventually... integrate
+; Matt's code..?)
 (define-syntax (fac-module-begin stx)
   (syntax-parse stx
       [(#%module-begin body ...)
@@ -131,28 +75,7 @@
 ; If
 (define-syntax (fac-if stx)
   (syntax-parse stx
-    [(_ guard et ef)
-     #`(let iff ([gv guard])
-         (if (facet? gv)
-             (cond
-               [(set-member? (current-pc) (pos (facet-labelname gv)))
-                (iff (facet-left gv))]
-               [(set-member? (current-pc) (neg (facet-labelname gv)))
-                (iff (facet-right gv))]
-               [else
-                (let*
-                    ([left
-                      (parameterize ([current-pc (set-add (current-pc)
-                                                          (pos
-                                                           (facet-labelname gv)))])
-                        (iff (facet-left gv)))]
-                     [right
-                      (parameterize ([current-pc (set-add (current-pc)
-                                                          (neg
-                                                           (facet-labelname gv)))])
-                        (iff (facet-right gv)))])
-                  (construct-facet-optimized (list (pos (facet-labelname gv))) left right))])
-             (if gv et ef)))]))
+    [(_ guard et ef) #`(void)]))
 
 ; ref
 (define-syntax (ref stx)

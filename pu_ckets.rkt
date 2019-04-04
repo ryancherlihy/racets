@@ -2,116 +2,57 @@
 
 (provide (all-defined-out))
 
-(define label? symbol?)
+; Labels
+(struct lab (name) #:transparent)
 
-; Literals
-(struct pos (lab) #:transparent)
-(struct neg (lab) #:transparent)
+(define high (lab 'high))
+(define low (lab 'low))
+(define partial (lab 'partial))
 
-; Facets
-(struct facet (labelname left right) #:transparent)
+; Is it either high, low, or partial?
+(define (label? x) (set-member? x (set high low partial)))
 
-; Labels are a name plus a lambda (policy) that implements them
-(struct labelpair (name pol) #:transparent)
+; Permissive upgrade values
+(struct puvalue (label raw-value) #:transparent)
 
 ; Tagged faceted closures
-(struct fclo (clo) #:transparent)
+(struct tclo (puvalue) #:transparent)
 
-; Lazy failure
-(struct lfail ())
+; Tag a value with the current PC
+(define (mk-labeled v)
+  (puvalue (current-pc) v))
+
+; Change a value to another label
+(define (change-to value label)
+  (match value
+    [`(tclo (puvalue ,(? label? lab) ,raw-value))
+      (tclo (puvalue label raw-value))]
+    [`(puvalue ,lab ,raw-value)
+      (puvalue label raw-value)]))
 
 ; Label comparison
 (define (label<? l1 l2)
   (match (cons l1 l2)
-    [(cons '∞ _) #f]
-    [(cons '∞ '∞) #f]
-    [(cons _ '∞) #t]
-    [else (symbol<? l1 l2)]))
+    [(cons partial partial) #f]
+    [(cons _ partial) #t]
+    [(cons high high) #f]
+    [(cons low high) #t]
+    [(cons _ low) #f]))
 
-; Optimized facet construction ala Austin. This follows (nearly
-; exactly) the formulation in Austin et al.'s optimized facet
-; construction: Figure 6 in their paper.
-(define (construct-facet-optimized pc v default-value)
-  (define (head v)
-    (match v
-      [(cons (pos k) _) k]
-      [(cons (neg k) _) k]
-      [(facet k _ _) k]
-      [else '∞]))
-  (match (list pc v default-value)
-    [(list '() _ _) v]
-    [(list (cons (pos k) rst) (facet k va vb) (facet k vc vd)) 
-     (facet k (construct-facet-optimized rst va vc) vd)]
-    [(list (cons (neg k) rst) (facet k va vb) (facet k vc vd))
-     (facet k vc (construct-facet-optimized rst vb vd))]
-    [(list pc (facet k va vb) (facet k vc vd))
-     #:when (label<? k (head pc))
-     (facet k (construct-facet-optimized pc va vc)
-            (construct-facet-optimized pc vb vd))]
-    [(list (cons (pos k) rst) (facet k va vb) vo)
-     #:when (label<? k (head vo))
-     (facet k (construct-facet-optimized rst va vo) vo)]
-    [(list (cons (neg k) rst) (facet k va vb) vo)
-     #:when (label<? k (head vo))
-     (facet k vo (construct-facet-optimized rst vb vo))]
-    [(list (cons (pos k) rst) vn (facet k va vb))
-     #:when (label<? k (head vn))
-     (facet k (construct-facet-optimized rst vn va) vb)]
-    [(list (cons (neg k) rst) vn (facet k va vb))
-     #:when (label<? k (head vn))
-     (facet k va (construct-facet-optimized rst vn vb))]
-    [(list (cons (pos k) rst) vn vo)
-     #:when (and (label<? k (head vn)) (label<? k (head vo)))
-     (facet k (construct-facet-optimized rst vn vo) vo)]
-    [(list (cons (neg k) rst) vn vo)
-     #:when (and (label<? k (head vn)) (label<? k (head vo)))
-     (facet k vo (construct-facet-optimized rst vn vo))]
-    [(list pc (facet k va vb) vo)
-     #:when (and (label<? k (head vo)) (label<? k (head pc)))
-     (facet k (construct-facet-optimized pc va vo)
-            (construct-facet-optimized pc vb vo))]
-    [(list pc vn (facet k va vb))
-     #:when (and (label<? k (head vn)) (label<? k (head pc)))
-     (facet k (construct-facet-optimized pc vn va)
-            (construct-facet-optimized pc vn vb))]))
-
+; Label join
+(define (label-join l1 l2)
+  (match (cons l1 l2)
+    [(cons _ partial) partial]
+    [(cons partial _) partial]
+    [(cons _ high) high]
+    [(cons high _) high]
+    [(cons _ low) low]
+    [(cons low _) low]))
 
 ; The starting pc in the program
-(define current-pc (make-parameter (set)))
+(define current-pc (make-parameter low))
 
-; Construct a faceted value with a specific name and from values of
-; pos and neg branches
-(define (mkfacet name v1 v2)
-  (construct-facet-optimized
-   (set->list (set-add (current-pc) (pos name)))
-   v1
-   v2))
-
-;; Requires all faceted values to be in order (according to label<?)
-(define ((facet-fmap* f) . fvs)
-  (if (ormap (match-lambda
-               [(facet _ _ _) #t]
-               [else #f]) fvs)
-      (let* ([l (foldl
-                 (lambda (fv ll)
-                   (match fv
-                     [(facet lab lv rv) (if (label<? ll lab) ll lab)]
-                     [else ll]))
-                 '∞
-                 fvs)]
-             [fvs+ (map
-                    (match-lambda
-                      [(and v (facet lab lv rv)) #:when (eq? lab l) v]
-                      [v (facet l v v)])
-                    fvs)]
-             [lvs (map (match-lambda [(facet _ lv _) lv]) fvs+)]
-             [rvs (map (match-lambda [(facet _ _ rv) rv]) fvs+)]
-             [lv (apply (facet-fmap* f) lvs)]
-             [rv (apply (facet-fmap* f) rvs)])
-        (construct-facet-optimized (list (pos l)) lv rv))
-      (apply f fvs)))
-
-(define (prim-to-δ op)
+#;(define (prim-to-δ op)
   (match op
     ['+ +]
     ['* *]
