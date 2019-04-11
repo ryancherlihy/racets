@@ -21,13 +21,13 @@
   #%app)
  ; Rename out our core forms
  (rename-out
-  [fac-module-begin #%module-begin]
-  [fac-app #%app]
-  [fac-lambda #%plain-lambda]
-  [fac-lambda lambda]
-  [fac-if if]
-  [fac-and and]
-  [fac-or or]
+  [pu-module-begin #%module-begin]
+  [pu-app #%app]
+  [pu-lambda #%plain-lambda]
+  [pu-lambda lambda]
+  [pu-if if]
+  [pu-and and]
+  [pu-or or]
   )
 
  ; Create a constant
@@ -44,7 +44,14 @@
 
  ; mutate a reference cell
  ref-set!
- )
+ 
+
+ ; privatize a puvalue
+ mk-private
+
+ ; mutate a reference cell
+ pu-assign
+)
 
 ; Constants are simply marked with the current PC
 (define-syntax (const stx)
@@ -53,7 +60,7 @@
 
 ; Lambdas are rewritten into tagged closures so we can implement
 ; `racets` closures from primitives.
-(define-syntax (fac-lambda stx)
+(define-syntax (pu-lambda stx)
   (syntax-parse stx
     [(_ xs expr)
     #`(tclo (mk-labeled (lambda xs expr)))]))
@@ -66,27 +73,23 @@
 
 ; Module begin (currently this does nothing, eventually... integrate
 ; Matt's code..?)
-(define-syntax (fac-module-begin stx)
+(define-syntax (pu-module-begin stx)
   (syntax-parse stx
       [(#%module-begin body ...)
        #`(#%plain-module-begin
           body ...)]))
 
 ; If
-(define-syntax (fac-if stx)
+(define-syntax (pu-if stx)
   (syntax-parse stx
     [(_ guard et ef) #`(void)]))
 
 ; ref
 (define-syntax (ref stx)
   (syntax-parse stx
-    [(_ vr)
-     #`(let ([var vr]) ; let-bind vr to evaluate
-         (if (facet? var)
-             ; if var is a facet,
-             (box (construct-facet-optimized (set->list (current-pc)) var (lfail)))
-             ; else
-             (box var)))]))
+    [(_ e)
+     #`(let ([var e]) ; let-bind e to evaluate
+         (mk-labeled (box var)))])) ; create a new puvalue of the box tagged with the pc
 
 
 ; ref-set!
@@ -112,60 +115,84 @@
 ; deref
 (define-syntax (deref stx)
   (syntax-parse stx
-    [(_ vr)
-     #`(let dereff ([var (unbox vr)])
-         (if (facet? var)
-             ; if var is a facet value
-             (cond
-               [(set-member? (current-pc) (pos (facet-labelname var)))
-                (dereff (facet-left var))]
-               [(set-member? (current-pc) (neg (facet-labelname var)))
-                (dereff (facet-right var))]
-               [else
-                (mkfacet (facet-labelname var) (dereff (facet-left var)) (dereff (facet-right var)))])
-             ; else
-             var))]))
+    [(_ e)
+     #`(let ([addr e])
+         (if (puvalue? addr) ;check that the supplied value is tagged with a security label
+             (if (box? (puvalue-raw-value addr)) ;check that the supplied value is a reference cell
+                 (change-to (unbox (puvalue-raw-value addr)) (label-join
+                                                              (puvalue-label addr)
+                                                              (puvalue-label (unbox (puvalue-raw-value addr))))) ; return the value pointed to by the reference cell, with a new label that is a join of the value and the address which held it
+                 (error "Derefence target is not a reference cell")
+                 )
+             (error "Dereference target not tagged with a security label")
+          )
+         )]))
+
+
+; privatization operation changes the security label of a puvalue to high
+(define-syntax (mk-private stx)
+  (syntax-parse stx
+  [(_ e)
+   #'(let ([val e])
+       (if (puvalue? val)
+           (let ([raw-val (puvalue-raw-value val)])
+             (puvalue high raw-val)) ;return a new puvalue with a high security label
+           (error "Privatization target is not a tagged with a security label")))]))
+
+
+; assign-permissive - function deals with assignment to an already occupied reference cell
+(define-syntax (pu-assign stx)
+  (syntax-parse stx
+    [(_ e1 e2)
+     #'(let ([val1 e1]
+             [val2 e2])
+             (if (puvalue? val1)
+                 (if (puvalue? val2)
+                      (if (box? (puvalue-raw-value val1))
+                          (let* ([curr (unbox (puvalue-raw-value val1))]
+                                [curr-label (puvalue-label curr)]
+                                [new (puvalue-raw-value val2)]
+                                [new-label (puvalue-label new)]
+                                [addr-label (puvalue-label val1)])
+                            (if (equals? addr-label partial)
+                                (let ([lab-m (label-lift addr-label curr-label)])
+                                  (define val1 (puvalue label-m ((box (puvalue (label-join (label-m) (new-label)) new))))))
+                                (error "Address is partially leaked, cannot procede.")
+                                )
+                            )
+                      (error "Assignment target is not a reference cell"))
+                 (error "Value to be assigned is not tagged with a security label"))
+             (error "Assignment target is not tagged with a security label")
+             ))
+     ]
+    )
+  )
 
 ; Faceted application
-(define-syntax (fac-app stx)
+(define-syntax (pu-app stx)
   (syntax-parse stx
     [(_ f . args)
      #`(let applyf ([func f])
          (cond
-           [(facet? func)
-            (let* ([left
-                    (parameterize ([current-pc
-                                    (set-add (current-pc)
-                                             (pos (facet-labelname func)))])
-                      (applyf (facet-left func)))]
-                   [right
-                    (parameterize ([current-pc
-                                    (set-add (current-pc)
-                                             (neg (facet-labelname func)))])
-                      (applyf (facet-right func)))])
-              (construct-facet-optimized
-               (list (pos (facet-labelname func)))
-               left
-               right))]
-           ; An fclo coming from Racets
-           [(fclo? func) ((fclo-clo func) . args)]
-           ; Not an fclo. Must be a builtin, etc..
-           [else ((facet-fmap* func) . args)]))]))
+           [tclo? f] ; if its a tagged closure, check the puvalue then assuming its ok, check the args. if the args are okay, apply
+           [lambda? f] ; if its not a tagged closure yet, tag it w the current pc, then check the args and apply
+           [else f]
+           ))]))
 
 ;
 ; And/or
 ;
-(define-syntax (fac-and stx)
+(define-syntax (pu-and stx)
   (syntax-parse stx
     [(_) #`#t]
     [(_ e0 es ...)
-     #`(fac-if e0 (fac-and es ...) #f)]))
+     #`(pu-if e0 (pu-and es ...) #f)]))
 
-(define-syntax (fac-or stx)
+(define-syntax (pu-or stx)
   (syntax-parse stx
     [(_) #`#f]
     [(_ e0 es ...)
-     #`(fac-if e0 #t (fac-or es ...))]))
+     #`(pu-if e0 #t (pu-or es ...))]))
 
 ; Not sure what to do with continuations, we will have to handle other
 ; continuation-based stuff, too, eventually.

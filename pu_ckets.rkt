@@ -15,7 +15,7 @@
 ; Permissive upgrade values
 (struct puvalue (label raw-value) #:transparent)
 
-; Tagged faceted closures
+; Tagged permissive upgrade closures
 (struct tclo (puvalue) #:transparent)
 
 ; Tag a value with the current PC
@@ -27,7 +27,7 @@
   (match value
     [`(tclo (puvalue ,(? label? lab) ,raw-value))
       (tclo (puvalue label raw-value))]
-    [`(puvalue ,lab ,raw-value)
+    [(puvalue (lab l) raw-value) ;had to remove the quoting to get this pattern matching to work for my example, might not be best-practice but seems to work for now.
       (puvalue label raw-value)]))
 
 ; Label comparison
@@ -48,6 +48,16 @@
     [(cons high _) high]
     [(cons _ low) low]
     [(cons low _) low]))
+
+; Label lift for assignment operation
+(define (label-lift l1 l2)
+  (match (cons l1 l2)
+    [(cons low _) low]
+    [(cons high low) partial]
+    [(cons high high) high]
+    [(cons high partial) partial]
+    [else partial]
+    ))
 
 ; The starting pc in the program
 (define current-pc (make-parameter low))
