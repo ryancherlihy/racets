@@ -6,3 +6,5 @@
 (define a (ref y))
 
 (define b (deref a))
+
+(define c (mk-private (b)))

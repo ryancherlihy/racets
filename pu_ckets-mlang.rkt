@@ -89,7 +89,9 @@
   (syntax-parse stx
     [(_ e)
      #`(let ([var e]) ; let-bind e to evaluate
-         (mk-labeled (box var)))])) ; create a new puvalue of the box tagged with the pc
+         (if (puvalue? var)
+             (mk-labeled (box var))
+             (error "Expected a tagged value")))])) ; create a new puvalue of the box tagged with the pc
 
 
 ; ref-set!
@@ -154,9 +156,9 @@
                                 [new (puvalue-raw-value val2)]
                                 [new-label (puvalue-label new)]
                                 [addr-label (puvalue-label val1)])
-                            (if (equals? addr-label partial)
-                                (let ([lab-m (label-lift addr-label curr-label)])
-                                  (define val1 (puvalue label-m ((box (puvalue (label-join (label-m) (new-label)) new))))))
+                            (if (equal? addr-label partial)
+                                (let ([label-m (label-lift addr-label curr-label)])
+                                  (val1 (puvalue label-m ((box (puvalue (label-join (label-m) (new-label)) new))))))
                                 (error "Address is partially leaked, cannot procede.")
                                 )
                             )
@@ -171,14 +173,33 @@
 ; Faceted application
 (define-syntax (pu-app stx)
   (syntax-parse stx
-    [(_ f . args)
-     #`(let applyf ([func f])
-         (cond
-           [tclo? f] ; if its a tagged closure, check the puvalue then assuming its ok, check the args. if the args are okay, apply
-           [lambda? f] ; if its not a tagged closure yet, tag it w the current pc, then check the args and apply
-           [else f]
-           ))]))
-
+    [(_ f arg0 ...)
+    #:with ooo (quote-syntax ...)
+      #`(let ([clo f])
+          (match clo
+            [(tclo (puvalue lbl underlying-clo))
+             ; It evaluates to a closure
+             ; We want to evaluate each of arg0 ... w/ *current* pc
+             ; before switching to the new lbl to actually perform the
+             ; application.
+             (let* ([arglist (list* arg0 ...)] ; Just put all the arguments into a let bound list*
+                    [evald-args (list-eval current-pc arglist)]) 
+               (parameterize ([current-pc lbl])
+                 (if (equal? current-pc partial)
+                     (error "Function cannot be applied as this function is partially leaked.")
+                     (evaluate current-pc (apply underlying-clo arglist))
+                 )
+               )
+               )
+             ]
+            [(puvalue lab raw_val) ;if for some reason we get a puvalue rather then a tclo, just return it
+             (puvalue lab raw_val)
+             ]
+            )
+          )
+      ]
+    )
+  )
 ;
 ; And/or
 ;

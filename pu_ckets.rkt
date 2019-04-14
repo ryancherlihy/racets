@@ -49,6 +49,27 @@
     [(cons _ low) low]
     [(cons low _) low]))
 
+; Evaluate an argument passed to a closure.
+(define (evaluate pc e)
+  (if (puvalue? e)
+      ; if the value is already tagged, join its label with the label of the evaluation context
+      (change-to e (label-join pc (puvalue-label e)))
+      ;else
+      (if (tclo? e)
+          (tclo (change-to (tclo-puvalue e) (label-join (puvalue-label (tclo-puvalue e)) (pc))))
+          ; otherwise it is an untagged value and should be wrapped accordingly with respect to the evaluation context
+          (puvalue pc e)
+          )
+      )
+  )
+
+; Evaluate a list of arguments, return evaluated list (i.e. list where each arg has been evaluated to a puvalue or tclo)
+(define (list-eval pc arglist)
+  (for/list ([i arglist])
+    (evaluate pc i)
+    )
+  )
+
 ; Label lift for assignment operation
 (define (label-lift l1 l2)
   (match (cons l1 l2)
