@@ -192,7 +192,7 @@
                )
                )
              ]
-            [(puvalue lab raw_val) ;if for some reason we get a puvalue rather then a tclo, just return it
+            [(puvalue lab raw_val) ;if for some reason we get a puvalue rather then a tclo, just return it. <-- I actually thin this was because I had written (puvalue) in one of my funtions, so this clause might not actually be necessary.
              (puvalue lab raw_val)
              ]
             )

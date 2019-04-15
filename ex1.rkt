@@ -13,6 +13,6 @@
 
 (define e (mk-private a)) ; private reference cell with public content
 
-(define f (pu-assign e z))
+(define f (pu-assign e z)) ;should result in a partially leaked value, but currently doesn't.
 
 (define g (deref f))
