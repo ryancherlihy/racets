@@ -33,21 +33,21 @@
 ; Label comparison
 (define (label<? l1 l2)
   (match (cons l1 l2)
-    [(cons partial partial) #f]
-    [(cons _ partial) #t]
-    [(cons high high) #f]
-    [(cons low high) #t]
-    [(cons _ low) #f]))
+    [(cons (lab 'partial) (lab 'partial)) #f]
+    [(cons _ (lab 'partial)) #t]
+    [(cons (lab 'high) (lab 'high)) #f]
+    [(cons (lab 'low) (lab 'high)) #t]
+    [(cons _ (lab 'low)) #f]))
 
 ; Label join
 (define (label-join l1 l2)
   (match (cons l1 l2)
-    [(cons _ partial) partial]
-    [(cons partial _) partial]
-    [(cons _ high) high]
-    [(cons high _) high]
-    [(cons _ low) low]
-    [(cons low _) low]))
+    [(cons _ (lab 'partial)) partial]
+    [(cons (lab 'partial) _) partial]
+    [(cons _ (lab 'high)) high]
+    [(cons (lab 'high) _) high]
+    [(cons _ (lab 'low)) low]
+    [(cons (lab 'low) _) low]))
 
 ; Evaluate an argument passed to a closure.
 (define (evaluate pc e)
@@ -72,13 +72,25 @@
 
 ; Label lift for assignment operation
 (define (label-lift l1 l2)
-  (match (cons l1 l2)
-    [(cons low _) low]
-    [(cons high low) partial]
-    [(cons high high) high]
-    [(cons high partial) partial]
-    [else partial]
-    ))
+  (let ([lab-pair (cons l1 l2)])
+    ;(fprintf (current-output-port) "Label pair being matched: ~a \n" lab-pair)
+    (match lab-pair
+    [(cons (lab 'low) _)
+     ;(println "low _ -> Should return low: ")
+     low]
+    [(cons (lab 'high) (lab 'low))
+     ;(println "high low -> Should return partial")
+     partial]
+    [(cons (lab 'high) (lab 'high))
+     ;(println "high high -> Should return high")
+     high]
+    [(cons (lab 'high) (lab 'partial))
+     ;(println "high partial -> should return partial")
+     partial]
+    [else
+     ;(println "else case -> should return partial")
+     partial]
+    )))
 
 ; The starting pc in the program
 (define current-pc (make-parameter low))
