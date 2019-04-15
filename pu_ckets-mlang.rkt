@@ -153,12 +153,12 @@
                       (if (box? (puvalue-raw-value val1))
                           (let* ([curr (unbox (puvalue-raw-value val1))]
                                 [curr-label (puvalue-label curr)]
-                                [new (puvalue-raw-value val2)]
-                                [new-label (puvalue-label new)]
+                                [new-raw (puvalue-raw-value val2)]
+                                [new-label (puvalue-label val2)]
                                 [addr-label (puvalue-label val1)])
-                            (if (equal? addr-label partial)
+                            (if (not (equal? addr-label partial))
                                 (let ([label-m (label-lift addr-label curr-label)])
-                                  (val1 (puvalue label-m ((box (puvalue (label-join (label-m) (new-label)) new))))))
+                                  (puvalue label-m (box (puvalue (label-join label-m new-label) new-raw))))
                                 (error "Address is partially leaked, cannot procede.")
                                 )
                             )
