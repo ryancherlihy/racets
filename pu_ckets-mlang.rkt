@@ -158,8 +158,8 @@
                                 [addr-label (puvalue-label val1)])
                             (if (not (equal? addr-label partial))
                                 (let ([label-m (label-lift addr-label curr-label)])
-                                  (println "label-m is the product of lifting the address label and the data label:")
-                                  (fprintf (current-output-port) "~a = (label-lift ~s ~v) \n" label-m addr-label curr-label)
+                                  ;(println "label-m is the product of lifting the address label and the data label:")
+                                  ;(fprintf (current-output-port) "~a = (label-lift ~s ~v) \n" label-m addr-label curr-label)
                                   (puvalue label-m (box (puvalue (label-join label-m new-label) new-raw))))
                                 (error "Address is partially leaked, cannot procede.")
                                 )
@@ -194,9 +194,9 @@
                )
                )
              ]
-            [(puvalue lab raw_val) ;if for some reason we get a puvalue rather then a tclo, just return it. <-- I actually think this was because I had written (puvalue) in one of my functions, so this clause might not actually be necessary.
-             (puvalue lab raw_val)
-             ]
+            ;[(puvalue lab raw_val) ;if for some reason we get a puvalue rather then a tclo, just return it. <-- I actually think this was because I had written (puvalue) in one of my functions, so this clause might not actually be necessary.
+             ;(puvalue lab raw_val)
+             ;]
             )
           )
       ]
