@@ -1,18 +1,26 @@
 #lang reader "pup.rkt"
 
-(define y (const #t))
-(define z (const #f))
+(define public-constant (const #t))
+(define private-constant (mk-private public-constant))
 
-(define a (ref y))
+(define a (ref public-constant)) ; create a public ref cell a with public content
 
-(define b (deref a))
+(define b (ref private-constant)) ; create a public ref cell with private content
 
-(define c (mk-private b)) ; private puvalue
+(pu-assign a private-constant) ; assign our public ref cell a new private value -> k=L, l=H therefore lift(k,l)=L
 
-(define d (pu-assign a c)) ; public reference cell with private content
+(define d (mk-private (ref public-constant))) ; create a private reference cell with a public value
 
-(define e (mk-private a)) ; private reference cell with public content
+(pu-assign d public-constant) ; assign our private ref cell a public value -> This should result in a partially leaked ref cell -> k=H, l=L therefore lift(k,l)=P
 
-(define f (pu-assign e z)) ;should result in a partially leaked value, but currently doesn't.
+(define tagged-print (tag println))
 
-(define g (deref f))
+(define test-if (lambda (x) (if x
+                  (tagged-print #t)
+                  (tagged-print #f))))
+
+
+
+
+
+

@@ -33,6 +33,9 @@
  ; Create a constant
  const
 
+ ; Create a tagged function <-placeholder, not sure we actually want this function long-term
+ tag
+
  ; Create a labeled value
  label
 
@@ -58,6 +61,10 @@
   (syntax-parse stx
     [(_ c) #`(mk-labeled c)]))
 
+(define-syntax (tag stx)
+  (syntax-parse stx
+    [(_ clo) #`(mk-tagged clo)]))
+
 ; Lambdas are rewritten into tagged closures so we can implement
 ; `racets` closures from primitives.
 (define-syntax (pu-lambda stx)
@@ -82,7 +89,26 @@
 ; If
 (define-syntax (pu-if stx)
   (syntax-parse stx
-    [(_ guard et ef) #`(void)]))
+    [(_ guard et ef)
+     #`(let ([then et] [else ef])
+         ; evaluate the guard <- make sure it is tagged and has a raw boolean value
+         (let* ([evaled-guard (evaluate current-pc guard)][guard-raw (puvalue-raw-value guard)][guard-lab (puvalue-label guard)])
+         ; make sure the guard isn't partially leaked (i.e. not k=P)
+           (if (not (equal? guard-lab partial))
+               (if (boolean? guard-raw)
+                    ; parameterize the current pc to the label of the guard (k).
+                    (parameterize ([current-pc guard-lab])
+                      (if guard-lab
+                          ; if the guard is true evaluate the then branch with respect to k.
+                          (evaluate current-pc then)
+                          ; if the guard is false evaluate the else branch with respect to k.
+                          (evaluate current-pc else)
+                          )
+                      )
+                   (error "Guard condition does not evaluate to a boolean")
+                   )
+               (error "Guard is partially leaked, cannot procede."))
+         ))]))
 
 ; ref
 (define-syntax (ref stx)
@@ -158,9 +184,17 @@
                                 [addr-label (puvalue-label val1)])
                             (if (not (equal? addr-label partial))
                                 (let ([label-m (label-lift addr-label curr-label)])
-                                  ;(println "label-m is the product of lifting the address label and the data label:")
-                                  ;(fprintf (current-output-port) "~a = (label-lift ~s ~v) \n" label-m addr-label curr-label)
-                                  (puvalue label-m (box (puvalue (label-join label-m new-label) new-raw))))
+                                  ;(fprintf (current-output-port) "val1: ~a \n" val1)
+                                  ;(fprintf (current-output-port) "val2: ~a \n" val2)
+                                  ;(fprintf (current-output-port) "curr: ~a \n" curr)
+                                  ;(fprintf (current-output-port) "curr-label: ~a \n" curr-label)
+                                  ;(fprintf (current-output-port) "new-raw: ~a \n" new-raw)
+                                  ;(fprintf (current-output-port) "new-label: ~a \n" new-label)
+                                  ;(fprintf (current-output-port) "new-label: ~a \n" addr-label)
+                                  ;(fprintf (current-output-port) "label-m is the product of lifting the address label and the data label: \n ~a = (label-lift ~s ~v) \n" label-m addr-label curr-label)
+                                  ;(puvalue label-m (box (puvalue (label-join label-m new-label) new-raw))))
+                                  (set-box! (puvalue-raw-value val1) (puvalue (label-join label-m new-label) new-raw))
+                                  (set-puvalue-label! val1 label-m))
                                 (error "Address is partially leaked, cannot procede.")
                                 )
                             )
@@ -185,11 +219,17 @@
              ; before switching to the new lbl to actually perform the
              ; application.
              (let* ([arglist (list* arg0 ...)] ; Just put all the arguments into a let bound list*
-                    [evald-args (list-eval current-pc arglist)]) 
+                    [evald-args (list-eval (current-pc) arglist)]) 
+               ;(fprintf (current-output-port) "Matched a closure: ~a \n" clo)
+               ;(fprintf (current-output-port) "Label: ~a \n" lbl)
+               ;(fprintf (current-output-port) "Underlying closure: ~a \n" underlying-clo)
+               ;(fprintf (current-output-port) "Argument list: ~a \n" arglist)
+               ;(fprintf (current-output-port) "current-pc: ~a \n" (current-pc))
+               ;(fprintf (current-output-port) "Evaluated argument list: ~a \n" evald-args)
                (parameterize ([current-pc lbl])
-                 (if (equal? current-pc partial)
+                 (if (equal? (current-pc) partial)
                      (error "Function cannot be applied as this function is partially leaked.")
-                     (evaluate current-pc (apply underlying-clo arglist))
+                     (evaluate (current-pc) (apply underlying-clo evald-args))
                  )
                )
                )

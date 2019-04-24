@@ -13,7 +13,7 @@
 (define (label? x) (set-member? x (set high low partial)))
 
 ; Permissive upgrade values
-(struct puvalue (label raw-value) #:transparent)
+(struct puvalue (label raw-value) #:transparent #:mutable)
 
 ; Tagged permissive upgrade closures
 (struct tclo (puvalue) #:transparent)
@@ -21,6 +21,10 @@
 ; Tag a value with the current PC
 (define (mk-labeled v)
   (puvalue (current-pc) v))
+
+; Turn a function into a tagged closure
+(define (mk-tagged clo)
+  (tclo (puvalue (current-pc) clo)))
 
 ; Change a value to another label
 (define (change-to value label)
@@ -56,7 +60,7 @@
       (change-to e (label-join pc (puvalue-label e)))
       ;else
       (if (tclo? e)
-          (tclo (change-to (tclo-puvalue e) (label-join (puvalue-label (tclo-puvalue e)) (pc))))
+          (tclo (change-to (tclo-puvalue e) (label-join (puvalue-label (tclo-puvalue e)) pc)))
           ; otherwise it is an untagged value and should be wrapped accordingly with respect to the evaluation context
           (puvalue pc e)
           )
@@ -65,9 +69,17 @@
 
 ; Evaluate a list of arguments, return evaluated list (i.e. list where each arg has been evaluated to a puvalue or tclo)
 (define (list-eval pc arglist)
-  (for/list ([i arglist])
+  (if (list? arglist)
+   (for/list ([i arglist])
     (evaluate pc i)
     )
+   (if (null? arglist)
+       ;if the arglist is empty, return null (nothing to evaluate)
+       '()
+       ;else it is a single element, return a list of that one element
+       (list (evaluate pc arglist))
+       )
+   )
   )
 
 ; Label lift for assignment operation
@@ -76,7 +88,7 @@
     ;(fprintf (current-output-port) "Label pair being matched: ~a \n" lab-pair)
     (match lab-pair
     [(cons (lab 'low) _)
-     ;(println "low _ -> Should return low: ")
+    ;(println "low _ -> Should return low: ")
      low]
     [(cons (lab 'high) (lab 'low))
      ;(println "high low -> Should return partial")
