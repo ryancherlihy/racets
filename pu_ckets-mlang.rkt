@@ -90,25 +90,26 @@
 (define-syntax (pu-if stx)
   (syntax-parse stx
     [(_ guard et ef)
-     #`(let ([then et] [else ef])
          ; evaluate the guard <- make sure it is tagged and has a raw boolean value
-         (let* ([evaled-guard (evaluate current-pc guard)][guard-raw (puvalue-raw-value guard)][guard-lab (puvalue-label guard)])
+         #'(let* ([evaled-guard (evaluate (current-pc) guard)][guard-raw (puvalue-raw-value guard)][guard-lab (puvalue-label guard)])
          ; make sure the guard isn't partially leaked (i.e. not k=P)
            (if (not (equal? guard-lab partial))
                (if (boolean? guard-raw)
                     ; parameterize the current pc to the label of the guard (k).
                     (parameterize ([current-pc guard-lab])
-                      (if guard-lab
+                      (fprintf (current-output-port) "If->current-pc: ~a \n" (current-pc))
+                      (if guard-raw
                           ; if the guard is true evaluate the then branch with respect to k.
-                          (evaluate current-pc then)
+                          (evaluate (current-pc) et)
                           ; if the guard is false evaluate the else branch with respect to k.
-                          (evaluate current-pc else)
+                          (evaluate (current-pc) ef)
                           )
                       )
                    (error "Guard condition does not evaluate to a boolean")
                    )
                (error "Guard is partially leaked, cannot procede."))
-         ))]))
+             (fprintf (current-output-port) "If->current-pc: ~a \n" (current-pc))
+         )]))
 
 ; ref
 (define-syntax (ref stx)
@@ -141,15 +142,31 @@
                  (set-add pc (neg (facet-labelname var))))))))]))
 
 ; deref
+;(define-syntax (deref stx)
+;  (syntax-parse stx
+;    [(_ e)
+;     #`(let ([addr e])
+;         (if (puvalue? addr) ;check that the supplied value is tagged with a security label
+;             (if (box? (puvalue-raw-value addr)) ;check that the supplied value is a reference cell
+;                 (change-to (unbox (puvalue-raw-value addr)) (label-join
+;                                                              (puvalue-label addr)
+;                                                              (puvalue-label (unbox (puvalue-raw-value addr))))) ; return the value pointed to by the reference cell, with a new label that is a join of the value and the address which held it
+;                 (error "Derefence target is not a reference cell")
+;                 )
+;             (error "Dereference target not tagged with a security label")
+;          )
+;         )]))
 (define-syntax (deref stx)
   (syntax-parse stx
     [(_ e)
      #`(let ([addr e])
          (if (puvalue? addr) ;check that the supplied value is tagged with a security label
              (if (box? (puvalue-raw-value addr)) ;check that the supplied value is a reference cell
-                 (change-to (unbox (puvalue-raw-value addr)) (label-join
-                                                              (puvalue-label addr)
-                                                              (puvalue-label (unbox (puvalue-raw-value addr))))) ; return the value pointed to by the reference cell, with a new label that is a join of the value and the address which held it
+                 (let* ([unboxed (unbox (puvalue-raw-value addr))]
+                        [new-lab (label-join (puvalue-label addr) (puvalue-label unboxed))]
+                        )
+                   (set-puvalue-label! unboxed new-lab)
+                   unboxed)
                  (error "Derefence target is not a reference cell")
                  )
              (error "Dereference target not tagged with a security label")
@@ -163,8 +180,7 @@
   [(_ e)
    #'(let ([val e])
        (if (puvalue? val)
-           (let ([raw-val (puvalue-raw-value val)])
-             (puvalue high raw-val)) ;return a new puvalue with a high security label
+           (set-puvalue-label! val high)
            (error "Privatization target is not a tagged with a security label")))]))
 
 
@@ -172,8 +188,8 @@
 (define-syntax (pu-assign stx)
   (syntax-parse stx
     [(_ e1 e2)
-     #'(let ([val1 e1]
-             [val2 e2])
+     #'(let ([val1 (evaluate (current-pc) e1)]
+             [val2 (evaluate (current-pc) e2)])
              (if (puvalue? val1)
                  (if (puvalue? val2)
                       (if (box? (puvalue-raw-value val1))
@@ -227,16 +243,22 @@
                ;(fprintf (current-output-port) "current-pc: ~a \n" (current-pc))
                ;(fprintf (current-output-port) "Evaluated argument list: ~a \n" evald-args)
                (parameterize ([current-pc lbl])
+                 (fprintf (current-output-port) "Function Application->current-pc: ~a \n" (current-pc))
                  (if (equal? (current-pc) partial)
                      (error "Function cannot be applied as this function is partially leaked.")
                      (evaluate (current-pc) (apply underlying-clo evald-args))
                  )
                )
+               ;(fprintf (current-output-port) "Function Application->current-pc: ~a \n" (current-pc))
                )
              ]
             ;[(puvalue lab raw_val) ;if for some reason we get a puvalue rather then a tclo, just return it. <-- I actually think this was because I had written (puvalue) in one of my functions, so this clause might not actually be necessary.
              ;(puvalue lab raw_val)
              ;]
+            [println
+             (println arg0 ...)]
+            [fprintf
+             (fprintf arg0 ...)]
             )
           )
       ]
